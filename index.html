@@ -120,6 +120,17 @@
     box-shadow:0 4px 12px rgba(245,157,176,.45);
   }
   #sendBtn:disabled{ opacity:.4; box-shadow:none; }
+  #imgBtn{
+    flex:none; width:48px; height:48px; border-radius:50%; border:none; cursor:pointer;
+    background:#fff; font-size:20px; box-shadow:0 2px 8px rgba(160,120,70,.18);
+  }
+  .bubble img.msgimg{ max-width:100%; border-radius:12px; display:block; margin-bottom:2px; }
+  #imgViewer{
+    display:none; position:fixed; inset:0; background:rgba(40,30,20,.88); z-index:30;
+    align-items:center; justify-content:center; padding:16px;
+  }
+  #imgViewer.open{ display:flex; }
+  #imgViewer img{ max-width:100%; max-height:100%; border-radius:10px; }
   #configWarn{
     display:none; background:#fff3cd; color:#7a5c00; font-size:12.5px; padding:10px 14px; line-height:1.6;
   }
@@ -200,10 +211,15 @@
   </header>
   <div id="messages"></div>
   <footer>
+    <button id="imgBtn" title="画像を送る">📷</button>
+    <input type="file" id="imgFile" accept="image/*" hidden>
     <textarea id="textInput" rows="1" placeholder="メッセージを書く…"></textarea>
     <button id="sendBtn" title="送信">➤</button>
   </footer>
 </div>
+
+<!-- 画像ビューア -->
+<div id="imgViewer"><img alt=""></div>
 
 <!-- 名前・アイコン設定 -->
 <div id="settingsModal">
@@ -396,7 +412,10 @@ function renderMessage(id, m){
     '<div class="avatar">' + (mem.img ? '<img alt="" src="' + mem.img + '">' : mem.face) + "</div>" +
     '<div class="col">' +
       (mine ? "" : '<div class="who">' + esc(mem.name) + "</div>") +
-      '<div class="bubble">' + esc(m.text) + "</div>" +
+      '<div class="bubble">' +
+        (m.img ? '<img class="msgimg" alt="" src="' + m.img + '">' : "") +
+        (m.text ? "<span>" + esc(m.text) + "</span>" : "") +
+      "</div>" +
       '<div class="meta"><span>' + hhmm(m.createdAt) + '</span><span class="read">' + esc(readersText(m)) + "</span></div>" +
     "</div>";
   messagesEl.appendChild(row);
@@ -424,6 +443,49 @@ async function send(){
   } catch(e) { console.error(e); alert("送信できませんでした"); }
 }
 sendBtn.addEventListener("click", send);
+
+/* ===== 画像を送る ===== */
+const imgViewer = document.getElementById("imgViewer");
+imgViewer.addEventListener("click", () => imgViewer.classList.remove("open"));
+messagesEl.addEventListener("click", e => {
+  if (e.target && e.target.classList && e.target.classList.contains("msgimg")) {
+    imgViewer.querySelector("img").src = e.target.src;
+    imgViewer.classList.add("open");
+  }
+});
+function fileToChatImage(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 640;
+      const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * scale), h = Math.round(img.naturalHeight * scale);
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      let q = 0.8, out = c.toDataURL("image/jpeg", q);
+      while (out.length > 145000 && q > 0.35) { q -= 0.15; out = c.toDataURL("image/jpeg", q); }
+      resolve(out);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+const imgFile = document.getElementById("imgFile");
+document.getElementById("imgBtn").addEventListener("click", () => imgFile.click());
+imgFile.addEventListener("change", async () => {
+  const f = imgFile.files && imgFile.files[0];
+  imgFile.value = "";
+  if (!f || !db) return;
+  try {
+    const dataUrl = await fileToChatImage(f);
+    await addDoc(collection(db, "fc_messages"), {
+      sender: myId, type: "chat", text: "", img: dataUrl,
+      createdAt: Date.now(), readBy: {}
+    });
+  } catch(e) { console.error(e); alert("画像を送れませんでした"); }
+});
 textInput.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
 });
