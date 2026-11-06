@@ -123,6 +123,39 @@
   #configWarn{
     display:none; background:#fff3cd; color:#7a5c00; font-size:12.5px; padding:10px 14px; line-height:1.6;
   }
+
+  /* ===== 名前・アイコン設定 ===== */
+  .title-row{ display:flex; align-items:center; justify-content:space-between; }
+  #settingsBtn{
+    border:none; background:#fff; border-radius:50%; width:34px; height:34px; font-size:17px;
+    cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,.10);
+  }
+  #settingsModal{
+    display:none; position:fixed; inset:0; background:rgba(90,70,50,.35); z-index:20;
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #settingsModal.open{ display:flex; }
+  .settings-card{
+    background:var(--card); border-radius:22px; padding:22px 18px; width:100%; max-width:360px;
+    box-shadow:0 10px 34px rgba(120,80,40,.25);
+  }
+  .settings-title{ font-weight:800; font-size:16px; margin-bottom:14px; text-align:center; }
+  .srow{ display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+  .srow .sface{
+    width:52px; flex:none; font-size:17px; padding:9px 6px; text-align:center;
+    border-radius:12px; border:2px solid #eadfce; background:#fff;
+  }
+  .srow .sname{
+    flex:1; font-size:16px; padding:9px 12px; border-radius:12px;
+    border:2px solid #eadfce; background:#fff; font-family:inherit;
+  }
+  .settings-btns{ display:flex; gap:10px; margin-top:14px; }
+  .settings-btns button{
+    flex:1; font-size:15px; font-weight:700; border-radius:999px; padding:11px; cursor:pointer; border:none;
+  }
+  #settingsCancel{ background:#f3ead9; color:var(--ink); }
+  #settingsSave{ background:linear-gradient(135deg,#f7a8b8,#f59db0); color:#fff; }
+  .settings-note{ font-size:11px; opacity:.6; text-align:center; margin:10px 0 0; }
 </style>
 </head>
 <body>
@@ -148,7 +181,7 @@
 <!-- チャット画面 -->
 <div id="room">
   <header>
-    <div class="title">🌸 4人のおへや</div>
+    <div class="title-row"><div class="title">🌸 4人のおへや</div><button id="settingsBtn" title="名前とアイコン">⚙</button></div>
     <div id="presence"></div>
   </header>
   <div id="messages"></div>
@@ -156,6 +189,19 @@
     <textarea id="textInput" rows="1" placeholder="メッセージを書く…"></textarea>
     <button id="sendBtn" title="送信">➤</button>
   </footer>
+</div>
+
+<!-- 名前・アイコン設定 -->
+<div id="settingsModal">
+  <div class="settings-card">
+    <div class="settings-title">名前とアイコン</div>
+    <div id="settingsRows"></div>
+    <div class="settings-btns">
+      <button id="settingsCancel">やめる</button>
+      <button id="settingsSave">保存する</button>
+    </div>
+    <p class="settings-note">保存すると全員の画面にすぐ反映されます</p>
+  </div>
 </div>
 
 <script src="./config.js"></script>
@@ -173,6 +219,10 @@ const MEMBERS = {
   mochasan:{ name: "もちゃおさん", face: "🌟" },
   akki:    { name: "あっきぃ",     face: "💛" }
 };
+/* 表示用プロフィール。初期値は上の既定、fc_settings/profiles が来たら差し替わる */
+const PROFILES = JSON.parse(JSON.stringify(MEMBERS));
+const msgData = new Map();      // 描画済みメッセージ（プロフィール変更時の再描画用）
+let lastSeenMap = {};           // presence の最新スナップショット
 const ONLINE_MS = 45000;        // presence: 最終ハートビートから この時間内なら在室
 const JOIN_NOTICE_GAP_MS = 60000; // これ以上 離席していたら 入室通知を出す
 
@@ -205,6 +255,7 @@ function refreshEnterBtn(){ enterBtn.disabled = !(myId && passInput.value.length
 
 let db = null;
 try { if (configReady) db = getFirestore(initializeApp(fb)); } catch(e) { console.error(e); }
+if (db) subscribeProfiles();
 
 enterBtn.addEventListener("click", async () => {
   if (passInput.value !== cfg.passcode) { gateError.textContent = "パスコードが違います"; return; }
@@ -230,7 +281,7 @@ async function enterRoom(){
   if (Date.now() - lastSeen > JOIN_NOTICE_GAP_MS) {
     await addDoc(collection(db, "fc_messages"), {
       sender: myId, type: "system", event: "join",
-      text: MEMBERS[myId].name + "がログインしました",
+      text: PROFILES[myId].name + "がログインしました",
       createdAt: Date.now(), readBy: {}
     });
   }
@@ -242,24 +293,27 @@ async function heartbeat(){
   if (!db || !myId) return;
   try {
     await setDoc(doc(db, "fc_presence", myId),
-      { member: myId, displayName: MEMBERS[myId].name, lastSeen: Date.now() }, { merge: true });
+      { member: myId, displayName: PROFILES[myId].name, lastSeen: Date.now() }, { merge: true });
   } catch(e) { console.warn("heartbeat failed", e); }
 }
 
 /* ===== 在室表示 ===== */
 const presenceEl = document.getElementById("presence");
+function renderChips(){
+  presenceEl.innerHTML = "";
+  Object.keys(MEMBERS).forEach(id => {
+    const on = Date.now() - (lastSeenMap[id] || 0) < ONLINE_MS;
+    const chip = document.createElement("span");
+    chip.className = "chip" + (on ? " on" : "");
+    chip.innerHTML = '<span class="dot"></span>' + PROFILES[id].face + " " + esc(PROFILES[id].name);
+    presenceEl.appendChild(chip);
+  });
+}
 function subscribePresence(){
   onSnapshot(collection(db, "fc_presence"), snap => {
-    const seen = {};
-    snap.forEach(d => { seen[d.id] = d.data().lastSeen || 0; });
-    presenceEl.innerHTML = "";
-    Object.keys(MEMBERS).forEach(id => {
-      const on = Date.now() - (seen[id] || 0) < ONLINE_MS;
-      const chip = document.createElement("span");
-      chip.className = "chip" + (on ? " on" : "");
-      chip.innerHTML = '<span class="dot"></span>' + MEMBERS[id].face + " " + MEMBERS[id].name;
-      presenceEl.appendChild(chip);
-    });
+    lastSeenMap = {};
+    snap.forEach(d => { lastSeenMap[d.id] = d.data().lastSeen || 0; });
+    renderChips();
   });
   // チップの on/off を時間経過でも更新する
   setInterval(() => { /* onSnapshot が来なくても色が古くならないよう再描画トリガ */
@@ -303,11 +357,12 @@ function subscribeMessages(){
 
 function readersText(m){
   const rb = m.readBy || {};
-  const names = Object.keys(MEMBERS).filter(id => id !== m.sender && rb[id]).map(id => MEMBERS[id].name);
+  const names = Object.keys(MEMBERS).filter(id => id !== m.sender && rb[id]).map(id => PROFILES[id].name);
   return names.length ? "既読 " + names.join("・") : "";
 }
 
 function renderMessage(id, m){
+  msgData.set(id, m);
   if (m.type === "system") {
     const el = document.createElement("div");
     el.className = "sys"; el.id = "msg-" + id;
@@ -316,7 +371,7 @@ function renderMessage(id, m){
     return;
   }
   const mine = m.sender === myId;
-  const mem = MEMBERS[m.sender] || { name: m.sender, face: "？" };
+  const mem = PROFILES[m.sender] || { name: m.sender, face: "？" };
   const row = document.createElement("div");
   row.className = "row" + (mine ? " mine" : "");
   row.id = "msg-" + id;
@@ -358,6 +413,76 @@ textInput.addEventListener("keydown", e => {
 textInput.addEventListener("input", () => {
   textInput.style.height = "auto";
   textInput.style.height = Math.min(textInput.scrollHeight, 96) + "px";
+});
+
+/* ===== 名前・アイコン設定（fc_settings/profiles） ===== */
+function refreshGateButtons(){
+  nameBtns.forEach(b => {
+    const p = PROFILES[b.dataset.member];
+    if (!p) return;
+    const faceEl = b.querySelector(".face");
+    if (faceEl) faceEl.textContent = p.face;
+    b.childNodes[1].textContent = p.name;
+  });
+}
+function rerenderAllMessages(){
+  if (!msgData.size) return;
+  messagesEl.innerHTML = "";
+  msgData.forEach((m, id) => renderMessage(id, m));
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+function subscribeProfiles(){
+  onSnapshot(doc(db, "fc_settings", "profiles"), snap => {
+    if (!snap.exists()) return;
+    const data = snap.data();
+    let changed = false;
+    Object.keys(MEMBERS).forEach(id => {
+      const p = data[id];
+      if (p && typeof p.name === "string" && p.name && typeof p.face === "string" && p.face) {
+        if (PROFILES[id].name !== p.name || PROFILES[id].face !== p.face) {
+          PROFILES[id] = { name: p.name, face: p.face };
+          changed = true;
+        }
+      }
+    });
+    if (!changed) return;
+    refreshGateButtons();
+    renderChips();
+    rerenderAllMessages();
+    if (myId) heartbeat();
+  }, e => console.warn("profiles subscribe failed", e));
+}
+
+const settingsModal = document.getElementById("settingsModal");
+const settingsRows = document.getElementById("settingsRows");
+document.getElementById("settingsBtn").addEventListener("click", () => {
+  settingsRows.innerHTML = "";
+  Object.keys(MEMBERS).forEach(id => {
+    const row = document.createElement("div");
+    row.className = "srow";
+    row.innerHTML =
+      '<input class="sface" data-id="' + id + '" maxlength="8" value="' + esc(PROFILES[id].face) + '">' +
+      '<input class="sname" data-id="' + id + '" maxlength="20" value="' + esc(PROFILES[id].name) + '">';
+    settingsRows.appendChild(row);
+  });
+  settingsModal.classList.add("open");
+});
+document.getElementById("settingsCancel").addEventListener("click", () => settingsModal.classList.remove("open"));
+settingsModal.addEventListener("click", e => { if (e.target === settingsModal) settingsModal.classList.remove("open"); });
+document.getElementById("settingsSave").addEventListener("click", async () => {
+  const obj = {};
+  Object.keys(MEMBERS).forEach(id => {
+    const face = settingsRows.querySelector('.sface[data-id="' + id + '"]').value.trim();
+    const name = settingsRows.querySelector('.sname[data-id="' + id + '"]').value.trim();
+    obj[id] = {
+      face: face || MEMBERS[id].face,
+      name: (name || MEMBERS[id].name).slice(0, 20)
+    };
+  });
+  try {
+    await setDoc(doc(db, "fc_settings", "profiles"), obj);
+    settingsModal.classList.remove("open");
+  } catch(e) { console.error(e); alert("保存できませんでした"); }
 });
 </script>
 </body>
