@@ -137,7 +137,7 @@
   #settingsModal.open{ display:flex; }
   .settings-card{
     background:var(--card); border-radius:22px; padding:22px 18px; width:100%; max-width:360px;
-    box-shadow:0 10px 34px rgba(120,80,40,.25);
+    box-shadow:0 10px 34px rgba(120,80,40,.25); max-height:86vh; overflow-y:auto;
   }
   .settings-title{ font-weight:800; font-size:16px; margin-bottom:14px; text-align:center; }
   .srow{ display:flex; gap:8px; align-items:center; margin-bottom:10px; }
@@ -156,6 +156,20 @@
   #settingsCancel{ background:#f3ead9; color:var(--ink); }
   #settingsSave{ background:linear-gradient(135deg,#f7a8b8,#f59db0); color:#fff; }
   .settings-note{ font-size:11px; opacity:.6; text-align:center; margin:10px 0 0; }
+  .avatar img{ width:100%; height:100%; object-fit:cover; border-radius:50%; display:block; }
+  .chip img.chipimg{ width:16px; height:16px; object-fit:cover; border-radius:50%; }
+  .name-btn .face img{ width:30px; height:30px; object-fit:cover; border-radius:50%; }
+  .sprev{
+    width:40px; height:40px; flex:none; border-radius:50%; background:#fff; overflow:hidden;
+    display:flex; align-items:center; justify-content:center; font-size:19px;
+    box-shadow:0 2px 6px rgba(0,0,0,.10);
+  }
+  .sprev img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .simg-row{ display:flex; gap:8px; margin:0 0 12px 48px; }
+  .simg-btn{
+    font-size:12px; padding:5px 12px; border-radius:999px; border:2px solid #eadfce;
+    background:#fff; cursor:pointer; font-family:inherit;
+  }
 </style>
 </head>
 <body>
@@ -299,13 +313,16 @@ async function heartbeat(){
 
 /* ===== 在室表示 ===== */
 const presenceEl = document.getElementById("presence");
+function faceHTML(p){
+  return p.img ? '<img class="chipimg" alt="" src="' + p.img + '">' : p.face;
+}
 function renderChips(){
   presenceEl.innerHTML = "";
   Object.keys(MEMBERS).forEach(id => {
     const on = Date.now() - (lastSeenMap[id] || 0) < ONLINE_MS;
     const chip = document.createElement("span");
     chip.className = "chip" + (on ? " on" : "");
-    chip.innerHTML = '<span class="dot"></span>' + PROFILES[id].face + " " + esc(PROFILES[id].name);
+    chip.innerHTML = '<span class="dot"></span>' + faceHTML(PROFILES[id]) + " " + esc(PROFILES[id].name);
     presenceEl.appendChild(chip);
   });
 }
@@ -376,7 +393,7 @@ function renderMessage(id, m){
   row.className = "row" + (mine ? " mine" : "");
   row.id = "msg-" + id;
   row.innerHTML =
-    '<div class="avatar">' + mem.face + "</div>" +
+    '<div class="avatar">' + (mem.img ? '<img alt="" src="' + mem.img + '">' : mem.face) + "</div>" +
     '<div class="col">' +
       (mine ? "" : '<div class="who">' + esc(mem.name) + "</div>") +
       '<div class="bubble">' + esc(m.text) + "</div>" +
@@ -421,7 +438,7 @@ function refreshGateButtons(){
     const p = PROFILES[b.dataset.member];
     if (!p) return;
     const faceEl = b.querySelector(".face");
-    if (faceEl) faceEl.textContent = p.face;
+    if (faceEl) faceEl.innerHTML = p.img ? '<img alt="" src="' + p.img + '">' : esc(p.face);
     b.childNodes[1].textContent = p.name;
   });
 }
@@ -439,8 +456,9 @@ function subscribeProfiles(){
     Object.keys(MEMBERS).forEach(id => {
       const p = data[id];
       if (p && typeof p.name === "string" && p.name && typeof p.face === "string" && p.face) {
-        if (PROFILES[id].name !== p.name || PROFILES[id].face !== p.face) {
-          PROFILES[id] = { name: p.name, face: p.face };
+        const img = (typeof p.img === "string" && p.img) ? p.img : null;
+        if (PROFILES[id].name !== p.name || PROFILES[id].face !== p.face || (PROFILES[id].img || null) !== img) {
+          PROFILES[id] = { name: p.name, face: p.face, img: img };
           changed = true;
         }
       }
@@ -455,15 +473,68 @@ function subscribeProfiles(){
 
 const settingsModal = document.getElementById("settingsModal");
 const settingsRows = document.getElementById("settingsRows");
+const pendingImg = {};   // id -> dataURL（差し替え）/ ""（消す）/ 未設定（そのまま）
+
+function fileToAvatar(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const S = 128;
+      const c = document.createElement("canvas"); c.width = S; c.height = S;
+      const ctx = c.getContext("2d");
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const sx = (img.naturalWidth - side) / 2, sy = (img.naturalHeight - side) / 2;
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, S, S);
+      let q = 0.85, out = c.toDataURL("image/jpeg", q);
+      while (out.length > 38000 && q > 0.4) { q -= 0.15; out = c.toDataURL("image/jpeg", q); }
+      resolve(out);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+function previewHTML(id){
+  const pi = pendingImg[id];
+  const img = pi === undefined ? PROFILES[id].img : (pi === "" ? null : pi);
+  return img ? '<img alt="" src="' + img + '">' : esc(PROFILES[id].face);
+}
 document.getElementById("settingsBtn").addEventListener("click", () => {
+  Object.keys(pendingImg).forEach(k => delete pendingImg[k]);
   settingsRows.innerHTML = "";
   Object.keys(MEMBERS).forEach(id => {
     const row = document.createElement("div");
     row.className = "srow";
     row.innerHTML =
+      '<div class="sprev" data-prev="' + id + '">' + previewHTML(id) + "</div>" +
       '<input class="sface" data-id="' + id + '" maxlength="8" value="' + esc(PROFILES[id].face) + '">' +
       '<input class="sname" data-id="' + id + '" maxlength="20" value="' + esc(PROFILES[id].name) + '">';
     settingsRows.appendChild(row);
+    const imgRow = document.createElement("div");
+    imgRow.className = "simg-row";
+    imgRow.innerHTML =
+      '<label class="simg-btn">画像を選ぶ<input type="file" accept="image/*" data-file="' + id + '" hidden></label>' +
+      '<button type="button" class="simg-btn" data-clear="' + id + '">画像を消す</button>';
+    settingsRows.appendChild(imgRow);
+  });
+  settingsRows.querySelectorAll("[data-file]").forEach(inp => {
+    inp.addEventListener("change", async () => {
+      const f = inp.files && inp.files[0];
+      if (!f) return;
+      const id = inp.dataset.file;
+      try {
+        pendingImg[id] = await fileToAvatar(f);
+        settingsRows.querySelector('[data-prev="' + id + '"]').innerHTML = previewHTML(id);
+      } catch(e) { console.error(e); alert("画像を読み込めませんでした"); }
+    });
+  });
+  settingsRows.querySelectorAll("[data-clear]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.clear;
+      pendingImg[id] = "";
+      settingsRows.querySelector('[data-prev="' + id + '"]').innerHTML = previewHTML(id);
+    });
   });
   settingsModal.classList.add("open");
 });
@@ -474,10 +545,14 @@ document.getElementById("settingsSave").addEventListener("click", async () => {
   Object.keys(MEMBERS).forEach(id => {
     const face = settingsRows.querySelector('.sface[data-id="' + id + '"]').value.trim();
     const name = settingsRows.querySelector('.sname[data-id="' + id + '"]').value.trim();
-    obj[id] = {
+    const entry = {
       face: face || MEMBERS[id].face,
       name: (name || MEMBERS[id].name).slice(0, 20)
     };
+    const pi = pendingImg[id];
+    const finalImg = pi === undefined ? (PROFILES[id].img || null) : (pi === "" ? null : pi);
+    if (finalImg) entry.img = finalImg;
+    obj[id] = entry;
   });
   try {
     await setDoc(doc(db, "fc_settings", "profiles"), obj);
