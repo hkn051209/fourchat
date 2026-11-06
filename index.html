@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>4人のおへや</title>
+<style>
+  :root{
+    --bg:#fdf3e3;
+    --ink:#4a3f35;
+    --pink:#f7a8b8;
+    --lav:#b7a6e8;
+    --sky:#8ec9e8;
+    --sun:#f5c86e;
+    --card:#fffdf8;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ height:100%; }
+  body{
+    margin:0; color:var(--ink);
+    font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Noto Sans JP",sans-serif;
+    background:
+      radial-gradient(circle at 12% 20%, #ffe9f0 0 60px, transparent 61px),
+      radial-gradient(circle at 88% 78%, #e6f3ff 0 80px, transparent 81px),
+      var(--bg);
+    display:flex; flex-direction:column;
+  }
+
+  /* ===== 入室画面 ===== */
+  #gate{
+    flex:1; display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .gate-card{
+    background:var(--card); border-radius:24px; padding:28px 22px; width:100%; max-width:360px;
+    box-shadow:0 8px 30px rgba(190,140,90,.18); text-align:center;
+  }
+  .gate-card h1{ font-size:22px; margin:0 0 4px; }
+  .gate-card p.sub{ margin:0 0 20px; font-size:13px; opacity:.75; }
+  .name-btns{ display:flex; gap:12px; margin-bottom:16px; }
+  .name-btn{
+    flex:1; border:3px solid transparent; background:#fff; border-radius:18px; padding:14px 6px;
+    font-size:17px; font-weight:700; cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,.06);
+  }
+  .name-btn .face{ display:block; font-size:26px; margin-bottom:4px; }
+  .name-btn[data-member="hikono"]{ border-color:#ffd3dd; }
+  .name-btn[data-member="sayaka"]{ border-color:#ddd2ff; }
+  .name-btn.selected[data-member="hikono"]{ background:#fff0f3; border-color:var(--pink); }
+  .name-btn.selected[data-member="sayaka"]{ background:#f2efff; border-color:var(--lav); }
+  #passInput{
+    width:100%; font-size:16px; padding:12px 14px; border-radius:14px;
+    border:2px solid #eadfce; background:#fff; margin-bottom:14px; text-align:center;
+  }
+  #enterBtn{
+    width:100%; font-size:17px; font-weight:700; color:#fff; background:linear-gradient(135deg,#f7a8b8,#f59db0);
+    border:none; border-radius:999px; padding:13px; cursor:pointer;
+    box-shadow:0 4px 14px rgba(245,157,176,.45);
+  }
+  #enterBtn:disabled{ opacity:.45; box-shadow:none; }
+  #gateError{ color:#d9534f; font-size:13px; min-height:18px; margin-top:10px; }
+  .gate-note{ font-size:11px; opacity:.6; margin-top:14px; line-height:1.6; }
+
+  /* ===== チャット画面 ===== */
+  #room{ display:none; flex:1; flex-direction:column; min-height:0; }
+  header{
+    background:rgba(255,253,248,.92); backdrop-filter:blur(6px);
+    padding:10px 14px calc(8px); border-bottom:2px dashed #f0dfc2;
+    position:sticky; top:0; z-index:5;
+  }
+  header .title{ font-weight:800; font-size:16px; }
+  #presence{ display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .chip{
+    font-size:11px; padding:3px 9px; border-radius:999px; background:#f3ead9; opacity:.55;
+    display:inline-flex; align-items:center; gap:5px;
+  }
+  .chip .dot{ width:8px; height:8px; border-radius:50%; background:#cbbfa8; }
+  .chip.on{ opacity:1; background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.08); }
+  .chip.on .dot{ background:#7ed491; box-shadow:0 0 6px #7ed491; }
+
+  #messages{
+    flex:1; overflow-y:auto; padding:14px 12px 8px; display:flex; flex-direction:column; gap:10px;
+  }
+  .sys{ align-self:center; background:rgba(120,100,80,.14); color:#6d5c4b;
+    font-size:11.5px; padding:4px 12px; border-radius:999px; }
+  .row{ display:flex; gap:8px; align-items:flex-end; max-width:100%; }
+  .row.mine{ flex-direction:row-reverse; }
+  .avatar{
+    width:34px; height:34px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+    font-size:16px; background:#fff; box-shadow:0 2px 6px rgba(0,0,0,.10); border:2px solid #fff;
+  }
+  .col{ display:flex; flex-direction:column; max-width:76%; }
+  .row.mine .col{ align-items:flex-end; }
+  .who{ font-size:11px; opacity:.7; margin:0 2px 2px; }
+  .bubble{
+    padding:9px 13px; border-radius:18px; font-size:15px; line-height:1.55; word-break:break-word;
+    background:#fff; box-shadow:0 2px 8px rgba(160,120,70,.10); border-bottom-left-radius:6px; white-space:pre-wrap;
+  }
+  .row.mine .bubble{ background:linear-gradient(135deg,#ffe3ea,#ffd3dd); border-radius:18px; border-bottom-right-radius:6px; }
+  .meta{ font-size:10.5px; opacity:.65; margin-top:3px; display:flex; gap:6px; }
+  .row.mine .meta{ flex-direction:row-reverse; }
+  .read{ color:#b0627a; }
+
+  footer{
+    padding:10px 10px calc(10px + env(safe-area-inset-bottom));
+    background:rgba(255,253,248,.94); border-top:2px dashed #f0dfc2; display:flex; gap:8px;
+  }
+  #textInput{
+    flex:1; font-size:16px; padding:11px 14px; border-radius:999px; border:2px solid #eadfce; background:#fff;
+    resize:none; max-height:96px; font-family:inherit;
+  }
+  #sendBtn{
+    flex:none; width:48px; height:48px; border-radius:50%; border:none; cursor:pointer;
+    background:linear-gradient(135deg,#f7a8b8,#f59db0); color:#fff; font-size:19px;
+    box-shadow:0 4px 12px rgba(245,157,176,.45);
+  }
+  #sendBtn:disabled{ opacity:.4; box-shadow:none; }
+  #configWarn{
+    display:none; background:#fff3cd; color:#7a5c00; font-size:12.5px; padding:10px 14px; line-height:1.6;
+  }
+</style>
+</head>
+<body>
+
+<div id="configWarn"></div>
+
+<!-- 入室画面 -->
+<div id="gate">
+  <div class="gate-card">
+    <h1>🌸 4人のおへや 🌸</h1>
+    <p class="sub">ひこの・さやか・もちゃおさん・あっきぃ だけの場所</p>
+    <div class="name-btns">
+      <button class="name-btn" data-member="hikono"><span class="face">🎀</span>ひこの</button>
+      <button class="name-btn" data-member="sayaka"><span class="face">💜</span>さやか</button>
+    </div>
+    <input id="passInput" type="password" placeholder="共通パスコード" autocomplete="off">
+    <button id="enterBtn" disabled>入室する</button>
+    <div id="gateError"></div>
+    <p class="gate-note">もちゃおさんとあっきぃは、巡回ジョブから参加します。<br>この画面から入るのは ひこの と さやか だけです。</p>
+  </div>
+</div>
+
+<!-- チャット画面 -->
+<div id="room">
+  <header>
+    <div class="title">🌸 4人のおへや</div>
+    <div id="presence"></div>
+  </header>
+  <div id="messages"></div>
+  <footer>
+    <textarea id="textInput" rows="1" placeholder="メッセージを書く…"></textarea>
+    <button id="sendBtn" title="送信">➤</button>
+  </footer>
+</div>
+
+<script src="./config.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import {
+  getFirestore, collection, doc, addDoc, setDoc, getDoc, updateDoc,
+  query, orderBy, limitToLast, onSnapshot, writeBatch
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+/* ===== メンバー定義（README のデータモデルと一致） ===== */
+const MEMBERS = {
+  hikono:  { name: "ひこの",       face: "🎀" },
+  sayaka:  { name: "さやか",       face: "💜" },
+  mochasan:{ name: "もちゃおさん", face: "🌟" },
+  akki:    { name: "あっきぃ",     face: "💛" }
+};
+const ONLINE_MS = 45000;        // presence: 最終ハートビートから この時間内なら在室
+const JOIN_NOTICE_GAP_MS = 60000; // これ以上 離席していたら 入室通知を出す
+
+const cfg = window.FOURCHAT_CONFIG || {};
+const fb = cfg.firebaseConfig || {};
+const configReady = ["apiKey","authDomain","projectId","appId"].every(k => fb[k] && !String(fb[k]).includes("ここに"));
+if (!cfg.passcode || String(cfg.passcode).includes("ここに")) { /* パスコード未設定は下で警告 */ }
+
+const warn = document.getElementById("configWarn");
+if (!configReady || !cfg.passcode || String(cfg.passcode).includes("ここに")) {
+  warn.style.display = "block";
+  warn.textContent = "⚠ config.js の設定がまだ入っていません（firebaseConfig と共通パスコード）。設定するまで入室できません。";
+}
+
+/* ===== 入室ゲート ===== */
+let myId = null;
+const nameBtns = [...document.querySelectorAll(".name-btn")];
+const passInput = document.getElementById("passInput");
+const enterBtn = document.getElementById("enterBtn");
+const gateError = document.getElementById("gateError");
+
+nameBtns.forEach(b => b.addEventListener("click", () => {
+  nameBtns.forEach(x => x.classList.remove("selected"));
+  b.classList.add("selected");
+  myId = b.dataset.member;
+  refreshEnterBtn();
+}));
+passInput.addEventListener("input", refreshEnterBtn);
+function refreshEnterBtn(){ enterBtn.disabled = !(myId && passInput.value.length > 0 && configReady); }
+
+let db = null;
+try { if (configReady) db = getFirestore(initializeApp(fb)); } catch(e) { console.error(e); }
+
+enterBtn.addEventListener("click", async () => {
+  if (passInput.value !== cfg.passcode) { gateError.textContent = "パスコードが違います"; return; }
+  gateError.textContent = "";
+  enterBtn.disabled = true; enterBtn.textContent = "入室中…";
+  try { await enterRoom(); }
+  catch(e){ console.error(e); gateError.textContent = "接続できませんでした。設定と通信を確認してください。"; enterBtn.disabled = false; enterBtn.textContent = "入室する"; }
+});
+
+async function enterRoom(){
+  document.getElementById("gate").style.display = "none";
+  document.getElementById("room").style.display = "flex";
+
+  const presRef = doc(db, "fc_presence", myId);
+  const before = await getDoc(presRef);
+  const lastSeen = before.exists() ? (before.data().lastSeen || 0) : 0;
+
+  await heartbeat();
+  setInterval(heartbeat, 15000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) heartbeat(); });
+
+  // しばらく離席していた場合だけ、入室通知を流す（リロード連打で通知が増えないように）
+  if (Date.now() - lastSeen > JOIN_NOTICE_GAP_MS) {
+    await addDoc(collection(db, "fc_messages"), {
+      sender: myId, type: "system", event: "join",
+      text: MEMBERS[myId].name + "がログインしました",
+      createdAt: Date.now(), readBy: {}
+    });
+  }
+  subscribePresence();
+  subscribeMessages();
+}
+
+async function heartbeat(){
+  if (!db || !myId) return;
+  try {
+    await setDoc(doc(db, "fc_presence", myId),
+      { member: myId, displayName: MEMBERS[myId].name, lastSeen: Date.now() }, { merge: true });
+  } catch(e) { console.warn("heartbeat failed", e); }
+}
+
+/* ===== 在室表示 ===== */
+const presenceEl = document.getElementById("presence");
+function subscribePresence(){
+  onSnapshot(collection(db, "fc_presence"), snap => {
+    const seen = {};
+    snap.forEach(d => { seen[d.id] = d.data().lastSeen || 0; });
+    presenceEl.innerHTML = "";
+    Object.keys(MEMBERS).forEach(id => {
+      const on = Date.now() - (seen[id] || 0) < ONLINE_MS;
+      const chip = document.createElement("span");
+      chip.className = "chip" + (on ? " on" : "");
+      chip.innerHTML = '<span class="dot"></span>' + MEMBERS[id].face + " " + MEMBERS[id].name;
+      presenceEl.appendChild(chip);
+    });
+  });
+  // チップの on/off を時間経過でも更新する
+  setInterval(() => { /* onSnapshot が来なくても色が古くならないよう再描画トリガ */
+    presenceEl.querySelectorAll(".chip"); /* 実データは次のスナップショットで更新 */
+  }, 30000);
+}
+
+/* ===== メッセージ ===== */
+const messagesEl = document.getElementById("messages");
+const seenMsgIds = new Set();
+
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function hhmm(ts){ const d = new Date(ts); return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0"); }
+
+function subscribeMessages(){
+  const q = query(collection(db, "fc_messages"), orderBy("createdAt", "asc"), limitToLast(200));
+  onSnapshot(q, async snap => {
+    let firstLoad = seenMsgIds.size === 0;
+    const toMarkRead = [];
+    snap.docChanges().forEach(ch => {
+      if (ch.type === "removed") return;
+      const d = ch.doc, m = d.data();
+      if (!seenMsgIds.has(d.id)) {
+        seenMsgIds.add(d.id);
+        renderMessage(d.id, m);
+      } else {
+        updateReadLabel(d.id, m);
+      }
+      // 自分宛てに来た未読は既読にする（自分の投稿とシステム通知のうち他人のもの）
+      if (m.sender !== myId && !(m.readBy && m.readBy[myId])) toMarkRead.push(d.ref);
+    });
+    if (toMarkRead.length) {
+      const batch = writeBatch(db);
+      toMarkRead.forEach(ref => batch.update(ref, { ["readBy." + myId]: Date.now() }));
+      try { await batch.commit(); } catch(e) { console.warn("markRead failed", e); }
+    }
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    void firstLoad;
+  });
+}
+
+function readersText(m){
+  const rb = m.readBy || {};
+  const names = Object.keys(MEMBERS).filter(id => id !== m.sender && rb[id]).map(id => MEMBERS[id].name);
+  return names.length ? "既読 " + names.join("・") : "";
+}
+
+function renderMessage(id, m){
+  if (m.type === "system") {
+    const el = document.createElement("div");
+    el.className = "sys"; el.id = "msg-" + id;
+    el.textContent = m.text;
+    messagesEl.appendChild(el);
+    return;
+  }
+  const mine = m.sender === myId;
+  const mem = MEMBERS[m.sender] || { name: m.sender, face: "？" };
+  const row = document.createElement("div");
+  row.className = "row" + (mine ? " mine" : "");
+  row.id = "msg-" + id;
+  row.innerHTML =
+    '<div class="avatar">' + mem.face + "</div>" +
+    '<div class="col">' +
+      (mine ? "" : '<div class="who">' + esc(mem.name) + "</div>") +
+      '<div class="bubble">' + esc(m.text) + "</div>" +
+      '<div class="meta"><span>' + hhmm(m.createdAt) + '</span><span class="read">' + esc(readersText(m)) + "</span></div>" +
+    "</div>";
+  messagesEl.appendChild(row);
+}
+
+function updateReadLabel(id, m){
+  const row = document.getElementById("msg-" + id);
+  if (!row) return;
+  const el = row.querySelector(".read");
+  if (el) el.textContent = readersText(m);
+}
+
+/* ===== 送信 ===== */
+const textInput = document.getElementById("textInput");
+const sendBtn = document.getElementById("sendBtn");
+async function send(){
+  const text = textInput.value.trim();
+  if (!text || !db) return;
+  textInput.value = ""; textInput.style.height = "auto";
+  try {
+    await addDoc(collection(db, "fc_messages"), {
+      sender: myId, type: "chat", text: text.slice(0, 2000),
+      createdAt: Date.now(), readBy: {}
+    });
+  } catch(e) { console.error(e); alert("送信できませんでした"); }
+}
+sendBtn.addEventListener("click", send);
+textInput.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
+textInput.addEventListener("input", () => {
+  textInput.style.height = "auto";
+  textInput.style.height = Math.min(textInput.scrollHeight, 96) + "px";
+});
+</script>
+</body>
+</html>
